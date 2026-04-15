@@ -12,9 +12,12 @@ from dotenv import load_dotenv
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 from langchain.schema import Document
 from langchain_groq import ChatGroq
+
+# ✅ NEW IMPORTS (replacing FastEmbedEmbeddings)
+from fastembed import TextEmbedding
+from langchain.embeddings.base import Embeddings
 
 # ─────────────────────────────────────────────
 # CONFIG
@@ -31,10 +34,23 @@ BASE_URL = "https://iatnetworks.com"
 MAX_PAGES = 40
 VECTOR_STORE_PATH = "faiss_index"
 
-# Max number of past turns to keep in history (each turn = 1 user + 1 assistant)
 MAX_HISTORY_TURNS = 5
 
 logging.basicConfig(level=logging.INFO)
+
+# ─────────────────────────────────────────────
+# FASTEMBED WRAPPER (FIX)
+# ─────────────────────────────────────────────
+class FastEmbedWrapper(Embeddings):
+    def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5"):
+        self.model = TextEmbedding(model_name=model_name)
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [list(v) for v in self.model.embed(texts)]
+
+    def embed_query(self, text: str) -> list[float]:
+        return list(self.model.embed([text]))[0].tolist()
+
 
 # ─────────────────────────────────────────────
 # WEB CRAWLER
@@ -133,7 +149,8 @@ class Chatbot:
             temperature=0.3
         )
 
-        embedding = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
+        # ✅ UPDATED EMBEDDING
+        embedding = FastEmbedWrapper()
 
         if not force_rebuild and os.path.exists(VECTOR_STORE_PATH):
             print("📂 Loading existing vector store...")
@@ -146,7 +163,7 @@ class Chatbot:
             print("🔄 Crawling website...")
             pages = crawl_website()
 
-            print("✂️  Chunking and tagging with source URLs...")
+            print("✂️ Chunking and tagging with source URLs...")
             splitter = RecursiveCharacterTextSplitter(
                 chunk_size=1000,
                 chunk_overlap=200
@@ -169,14 +186,11 @@ class Chatbot:
             print("💾 Vector store saved to disk.")
 
         self.retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
-
-        # Simple in-memory conversation history (replaces ConversationSummaryBufferMemory)
-        # Each entry is a dict: {"role": "user"|"assistant", "content": "..."}
         self.chat_history = []
 
     def ask(self, question: str) -> str:
-        # Build history text from the last MAX_HISTORY_TURNS turns
         recent = self.chat_history[-(MAX_HISTORY_TURNS * 2):]
+
         history_text = "\n".join(
             f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
             for m in recent
@@ -223,7 +237,6 @@ Answer:
         response = self.llm.invoke(prompt)
         answer = response.content.strip()
 
-        # Save turn to history
         self.chat_history.append({"role": "user", "content": question})
         self.chat_history.append({"role": "assistant", "content": answer})
 
@@ -235,7 +248,7 @@ Answer:
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
     if not GROQ_API_KEY:
-        print("⚠️  Set GROQ_API_KEY as an environment variable.")
+        print("⚠️ Set GROQ_API_KEY as an environment variable.")
         sys.exit(1)
 
     force_rebuild = "--rebuild" in sys.argv
@@ -258,4 +271,4 @@ if __name__ == "__main__":
         elapsed = round((time.time() - start) * 1000)
 
         print(f"\n🤖 Bot: {answer}")
-        print(f"⏱️  {elapsed} ms\n")
+        print(f"⏱️ {elapsed} ms\n")
