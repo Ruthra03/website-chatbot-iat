@@ -14,4 +14,4 @@ langchain-groq==0.3.8
 langchain-text-splitters==0.3.11
 langsmith==0.4.37
 faiss-cpu==1.13.0
-fastembed==0.4.2
+fastembed==0.8.0
