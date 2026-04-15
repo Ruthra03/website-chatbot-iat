@@ -1,20 +1,12 @@
-# Web UI
-streamlit==1.50.0
-
-# Crawling
-requests==2.32.5
-requests-toolbelt==1.0.0
-beautifulsoup4==4.14.3
-
-# Config
-python-dotenv==1.2.1
-
-# RAG + LLM
-langchain==0.3.28
-langchain-community==0.3.31
-langchain-core==0.3.84
-langchain-groq==0.3.8
-langchain-text-splitters==0.3.11
-langsmith==0.4.37
-faiss-cpu==1.13.0
-sentence-transformers==5.1.2
+beautifulsoup4
+faiss-cpu
+fastembed
+groq
+langchain
+langchain-community
+langchain-core
+langchain-groq
+langchain-text-splitters
+python-dotenv
+requests
+streamli
