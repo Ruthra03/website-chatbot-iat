@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 from langchain.schema import Document
 from langchain_groq import ChatGroq
 
@@ -133,7 +133,7 @@ class Chatbot:
             temperature=0.3
         )
 
-        embedding = HuggingFaceEmbeddings()
+        embedding = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
 
         if not force_rebuild and os.path.exists(VECTOR_STORE_PATH):
             print("📂 Loading existing vector store...")
