@@ -13,7 +13,6 @@ from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.memory import ConversationSummaryBufferMemory
 from langchain.schema import Document
 from langchain_groq import ChatGroq
 
@@ -31,6 +30,9 @@ MODEL = "llama-3.3-70b-versatile"
 BASE_URL = "https://iatnetworks.com"
 MAX_PAGES = 40
 VECTOR_STORE_PATH = "faiss_index"
+
+# Max number of past turns to keep in history (each turn = 1 user + 1 assistant)
+MAX_HISTORY_TURNS = 5
 
 logging.basicConfig(level=logging.INFO)
 
@@ -103,13 +105,12 @@ def crawl_website():
         content = scrape_page(url)
 
         if content:
-            # ── Fix #5: Deduplicate via MD5 hash ──
             content_hash = hashlib.md5(content.encode()).hexdigest()
             if content_hash in seen_hashes:
                 logging.info(f"Skipping duplicate: {url}")
             else:
                 seen_hashes.add(content_hash)
-                pages.append((url, content))   # ── Fix #3: store (url, content) pairs
+                pages.append((url, content))
 
         for link in get_links(url):
             if link not in visited:
@@ -126,7 +127,6 @@ def crawl_website():
 class Chatbot:
     def __init__(self, force_rebuild=False):
 
-        # ── Fix #2: Use official ChatGroq ──
         self.llm = ChatGroq(
             api_key=GROQ_API_KEY,
             model_name=MODEL,
@@ -135,7 +135,6 @@ class Chatbot:
 
         embedding = HuggingFaceEmbeddings()
 
-        # ── Fix #4: Persist vector store, skip rebuild if already exists ──
         if not force_rebuild and os.path.exists(VECTOR_STORE_PATH):
             print("📂 Loading existing vector store...")
             vectorstore = FAISS.load_local(
@@ -153,7 +152,6 @@ class Chatbot:
                 chunk_overlap=200
             )
 
-            # ── Fix #3: Build Document objects with URL metadata ──
             docs = []
             for url, content in pages:
                 chunks = splitter.split_text(content)
@@ -172,23 +170,20 @@ class Chatbot:
 
         self.retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
-        # ── Fix #1: Use ConversationSummaryBufferMemory to cap prompt size ──
-        self.memory = ConversationSummaryBufferMemory(
-            llm=self.llm,
-            max_token_limit=1000,
-            memory_key="chat_history",
-            return_messages=True
+        # Simple in-memory conversation history (replaces ConversationSummaryBufferMemory)
+        # Each entry is a dict: {"role": "user"|"assistant", "content": "..."}
+        self.chat_history = []
+
+    def ask(self, question: str) -> str:
+        # Build history text from the last MAX_HISTORY_TURNS turns
+        recent = self.chat_history[-(MAX_HISTORY_TURNS * 2):]
+        history_text = "\n".join(
+            f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+            for m in recent
         )
 
-    def ask(self, question):
-        # Load summarized history
-        history = self.memory.load_memory_variables({})["chat_history"]
-        history_text = "\n".join([str(h) for h in history])
-
-        # ── Fix #6: Use .invoke() instead of deprecated get_relevant_documents() ──
         retrieved_docs = self.retriever.invoke(question)
 
-        # ── Fix #3: Include source URLs in context ──
         context = "\n\n".join([
             f"[Source: {doc.metadata['source']}]\n{doc.page_content}"
             for doc in retrieved_docs
@@ -228,11 +223,9 @@ Answer:
         response = self.llm.invoke(prompt)
         answer = response.content.strip()
 
-        # Save turn to summarized memory
-        self.memory.save_context(
-            {"input": question},
-            {"output": answer}
-        )
+        # Save turn to history
+        self.chat_history.append({"role": "user", "content": question})
+        self.chat_history.append({"role": "assistant", "content": answer})
 
         return answer
 
@@ -245,7 +238,6 @@ if __name__ == "__main__":
         print("⚠️  Set GROQ_API_KEY as an environment variable.")
         sys.exit(1)
 
-    # Pass --rebuild flag to force re-crawl and re-embed
     force_rebuild = "--rebuild" in sys.argv
     bot = Chatbot(force_rebuild=force_rebuild)
 
